@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-contract Counter {
-    uint256 public number;
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
 
-    function setNumber(uint256 newNumber) public {
-        number = newNumber;
-    }
 
-    function increment() public {
-        number++;
-    }
+contract PaymentEscrow {
+   IERC20
+   
 }
