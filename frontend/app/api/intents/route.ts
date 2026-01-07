@@ -1,0 +1,11 @@
+import { saveIntent } from "@/app/lib/store";
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  saveIntent({
+    ...body,
+    status: "pending",
+  });
+
+  return Response.json({ ok: true });
+}
