@@ -14,7 +14,6 @@ npm install
 
 ```env
 NEXT_PUBLIC_DYNAMIC_ENV_ID=your_dynamic_environment_id
-NEXT_PUBLIC_BASE_SEPOLIA_RPC=https://base-sepolia.g.alchemy.com/v2/your_api_key
 ```
 
 3. Run development server:
