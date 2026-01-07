@@ -1,27 +1,28 @@
-import { kv } from "@vercel/kv";
-
-type Intent = {
-  intentId: string;
-  sender: string;
-  description: string;
-  amount: string;
-  status: "pending" | "claimed";
-};
-
-const PREFIX = "intent:";
-
-export async function saveIntent(intent: Intent) {
-  await kv.set(`${PREFIX}${intent.intentId}`, intent);
+export function encodeDescription(description: string): string {
+  if (!description) return "";
+  const base64 = btoa(description);
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export async function getIntent(intentId: string): Promise<Intent | null> {
-  return await kv.get<Intent>(`${PREFIX}${intentId}`);
-}
-
-export async function markClaimed(intentId: string) {
-  const intent = await getIntent(intentId);
-  if (intent) {
-    intent.status = "claimed";
-    await kv.set(`${PREFIX}${intentId}`, intent);
+export function decodeDescription(encoded: string): string {
+  if (!encoded) return "";
+  try {
+    let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
+    return atob(base64);
+  } catch {
+    return "";
   }
+}
+
+export function buildClaimUrl(
+  origin: string,
+  intentId: string,
+  description?: string
+): string {
+  const base = `${origin}/claim/${intentId}`;
+  if (description) {
+    return `${base}?m=${encodeDescription(description)}`;
+  }
+  return base;
 }

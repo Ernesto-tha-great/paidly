@@ -15,6 +15,7 @@ import {
   useTokenAllowance,
   useTransaction,
 } from "../lib/hooks";
+import { buildClaimUrl } from "../lib/store";
 
 const MAX_DESCRIPTION_LENGTH = 100;
 
@@ -88,17 +89,9 @@ export default function SendPage() {
         args: [intentId, amountWei],
       });
 
-      await fetch("/api/intents", {
-        method: "POST",
-        body: JSON.stringify({
-          intentId,
-          sender: primaryWallet.address,
-          amount: amountWei.toString(),
-          description,
-        }),
-      });
-
-      setGeneratedLink(`${window.location.origin}/claim/${intentId}`);
+      setGeneratedLink(
+        buildClaimUrl(window.location.origin, intentId, description)
+      );
       setAmount("");
       setDescription("");
       setStatus("");

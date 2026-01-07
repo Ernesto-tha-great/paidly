@@ -48,22 +48,22 @@ _sender locks $50, gets link => escrow holds $50 => recipient claims $50 via lin
 
 ```
 paidly/
-├── contract/ # Solidity smart contracts
-│ ├── src/
-│ │ ├── PaymentEscrow.sol # Core escrow logic
-│ │ └── MockERC20.sol # Test stablecoin
-│ └── script/
-│ └── Deploy.s.sol # Deployment script
+├── contract/                   # Solidity smart contracts
+│   ├── src/
+│   │   ├── PaymentEscrow.sol     # Core escrow logic
+│   │   └── MockERC20.sol         # Test stablecoin
+│   └── script/
+│       └── Deploy.s.sol          # Deployment script
 │
-└── frontend/ # Next.js application
-└── app/
-├── page.tsx # Home - balance, mint tokens
-├── send/page.tsx # Create payment links
-├── claim/[intentId]/ # Claim payments
-└── lib/
-├── hooks.ts # Reusable blockchain hooks
-├── constants.ts # ABIs and addresses
-└── store.ts # Intent persistence
+└── frontend/                   # Next.js application
+    └── app/
+        ├── page.tsx              # Home - balance, mint tokens
+        ├── send/page.tsx         # Create payment links
+        ├── claim/[intentId]/     # Claim payments
+        └── lib/
+            ├── hooks.ts          # Reusable blockchain hooks
+            ├── constants.ts      # ABIs and addresses
+            └── store.ts          # URL encoding utilities
 ```
 
 #### Prerequisites
@@ -306,11 +306,11 @@ NEXT_PUBLIC_DYNAMIC_ENV_ID = env_xxxxxxxxx;
 
 **2.4 App directory**
 
-Now, in the `app` directory, create five folders. `providers`, `lib`, `api`, `send`, `claim` respectively
+Now, in the `app` directory, create four folders: `providers`, `lib`, `send`, `claim` respectively
 
 **2.4.1 Lib**
 
-create four files. `config.ts`, `constants.ts`, `hooks.ts_`and `store.ts`respectively.
+create four files: `config.ts`, `constants.ts`, `hooks.ts` and `store.ts` respectively.
 
 **config.ts**
 
@@ -372,72 +372,45 @@ await executeAndWait({ address, abi, functionName, args }); // Sends tx AND wait
 **store.ts**
 
 ```js
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
+export function encodeDescription(description: string): string {
+  if (!description) return "";
+  const base64 = btoa(description);
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
-type Intent = {
+export function decodeDescription(encoded: string): string {
+  if (!encoded) return "";
+  try {
+    let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
+    return atob(base64);
+  } catch {
+    return "";
+  }
+}
+
+export function buildClaimUrl(
+  origin: string,
   intentId: string,
-  sender: string,
-  description: string,
-  amount: string,
-  status: "pending" | "claimed",
-};
-
-const STORE_PATH = join(process.cwd(), ".intents.json");
-
-function loadStore(): Map<string, Intent> {
-  try {
-    if (existsSync(STORE_PATH)) {
-      const data = readFileSync(STORE_PATH, "utf-8");
-      const entries = JSON.parse(data);
-      return new Map(entries);
-    }
-  } catch (e) {
-    console.error("Failed to load store:", e);
+  description?: string
+): string {
+  const base = `${origin}/claim/${intentId}`;
+  if (description) {
+    return `${base}?m=${encodeDescription(description)}`;
   }
-  return new Map();
-}
-
-function persistStore(intents: Map<string, Intent>) {
-  try {
-    const entries = Array.from(intents.entries());
-    writeFileSync(STORE_PATH, JSON.stringify(entries, null, 2));
-  } catch (e) {
-    console.error("Failed to persist store:", e);
-  }
-}
-
-export function saveIntent(intent: Intent) {
-  const intents = loadStore();
-  intents.set(intent.intentId, intent);
-  persistStore(intents);
-}
-
-export function getIntent(intentId: string): Intent | undefined {
-  const intents = loadStore();
-  return intents.get(intentId);
-}
-
-export function markClaimed(intentId: string) {
-  const intents = loadStore();
-  const intent = intents.get(intentId);
-  if (intent) {
-    intent.status = "claimed";
-    intents.set(intentId, intent);
-    persistStore(intents);
-  }
+  return base;
 }
 ```
 
-payment intents need to persist between send and claim flows so the store serves as our makeshift db.
+Instead of using a database, we take a simpler approach: the payment data lives in the URL itself.
 
 **How it works:**
 
-1.  _loadStore()_ reads .intents.json and returns a Map
-2.  Functions modify the Map
-3.  _persistStore()_ writes the Map back to disk
+- The `intentId` goes directly in the URL path (it's already on-chain)
+- The optional `description` is base64-encoded as a query parameter (`?m=...`)
+- When claiming, we read `sender`, `amount`, and `claimed` status directly from the smart contract
 
-we used a file based system because of the simple nature of the project and the need to stay nimble. In your app, could replace this with a real database.
+This eliminates the need for any backend storage. The link IS the data.
 
 **2.4.2 Providers**
 
@@ -515,73 +488,7 @@ export default function RootLayout({
 }
 ```
 
-**2.4.4 API**
-
-In the api folder create a folder named intents and a file named `route.ts`
-
-**app/api/intents/route.ts**
-
-```js
-import { saveIntent } from "@/app/lib/store";
-
-export async function POST(req: Request) {
-  const body = await req.json();
-  saveIntent({
-    ...body,
-    status: "pending",
-  });
-
-  return Response.json({ ok: true });
-}
-```
-
-This route receives a data object
-
-```json
-{
-  "intentId": "0xabc123...",
-  "sender": "0x1234...",
-  "amount": "1000000",
-  "description": "Lunch money"
-}
-```
-
-and saves it with the status pending so the claim page knows funds are available.
-
-**app/api/intents/[intentId]/route.ts**
-
-still in the intents folder, create a sub-directory named `[intentId]` and then another route.ts file within the folder.
-
-```js
-import { getIntent, markClaimed } from "@/app/lib/store";
-
-export async function GET(
-  _: Request,
-  { params }: { params: Promise<{ intentId: string }> }
-) {
-  const { intentId } = await params;
-  const intent = getIntent(intentId);
-
-  if (!intent) {
-    return Response.json(null, { status: 404 });
-  }
-
-  return Response.json(intent);
-}
-
-export async function POST(
-  _: Request,
-  { params }: { params: Promise<{ intentId: string }> }
-) {
-  const { intentId } = await params;
-  markClaimed(intentId);
-  return Response.json({ ok: true });
-}
-```
-
-Similarly, this fetches the intent and markes as claimed after a successful onchain interaction.
-
-**2.4.5 Homepage (app/page.tsx)**
+**2.4.4 Homepage (app/page.tsx)**
 
 This serves as our main home page. you can find the complete code for this component [here](https://gist.github.com/Ernesto-tha-great/40fe932fe646ebb6bc03083254c7da53).
 
@@ -594,7 +501,7 @@ const { ensureChain, executeAndWait } = useTransaction();
 
 Above is an excerpt from the codebase. The user object and primary wallet is destructured from the dynamic context (remember our provider?). the use tokenbalance and use transaction are hooks we created in the hooks.ts file. they basically help us fetch user balance, ensure user is on the correct chain and execute token minting.
 
-**2.4.6 Send**
+**2.4.5 Send**
 
 In the send directory, create a page.tsx file and paste in [this code](https://gist.github.com/Ernesto-tha-great/925c6a8922e496543ce6d4441f1e87f3).
 
@@ -636,17 +543,9 @@ The layout is quite similar to the homepage and the function that does all the m
         args: [intentId, amountWei],
       });
 
-      await fetch("/api/intents", {
-        method: "POST",
-        body: JSON.stringify({
-          intentId,
-          sender: primaryWallet.address,
-          amount: amountWei.toString(),
-          description,
-        }),
-      });
-
-      setGeneratedLink(`${window.location.origin}/claim/${intentId}`);
+      setGeneratedLink(
+        buildClaimUrl(window.location.origin, intentId, description)
+      );
       setAmount("");
       setDescription("");
       setStatus("");
@@ -662,29 +561,36 @@ The layout is quite similar to the homepage and the function that does all the m
   };
 ```
 
-Basically, this function creates an intent id, convert the amount passed to wei, ensures the network is correct and checks allowance (if we dont have enough allowance, it calls approve on the token contract).
+This function creates an intent id, converts the amount to wei, ensures the network is correct and checks allowance (if we dont have enough allowance, it calls approve on the token contract).
 
-next it calls the escrow contract to lock the funds and sends a post request to the api to record the intent.
+Next it calls the escrow contract to lock the funds. Finally, it builds the claim URL using `buildClaimUrl()` which encodes the intentId in the path and the optional description as a query parameter.
 
-finally, it saves the generated link to state which allows the user to access it.
+**2.4.6 Claim**
 
-**2.4.7 Claim**
-
-In the claim directory, create a sub-directory called “[intentId]” and a page.tsx file within it. you can find the complete [code here](https://gist.github.com/Ernesto-tha-great/4f6323150e1009ff2185fb9c9aa781a9).
+In the claim directory, create a sub-directory called "[intentId]" and a page.tsx file within it. you can find the complete [code here](https://gist.github.com/Ernesto-tha-great/4f6323150e1009ff2185fb9c9aa781a9).
 
 ```js
-useEffect(() => {
-  fetch(`/api/intents/${intentId}`)
-    .then((res) => res.json())
-    .then((data) => {
-      setIntent(data);
-      setFetching(false);
-    })
-    .catch(() => setFetching(false));
-}, [intentId]);
+const { intentId } = useParams();
+const searchParams = useSearchParams();
+const description = decodeDescription(searchParams.get("m") || "");
+
+const { data: intentData, isLoading: fetchingIntent } = useReadContract({
+  address: ESCROW_ADDRESS,
+  abi: escrowAbi,
+  functionName: "intents",
+  args: intentId ? [intentId as `0x${string}`] : undefined,
+});
+
+const intent = intentData
+  ? {
+      sender: intentData[0] as string,
+      amount: intentData[1] as bigint,
+      isClaimed: intentData[2] as boolean,
+    }
+  : null;
 ```
 
-The onchain interaction mechanism is similar to the handleSend function. the above, is the useEffect that handles fetching the intent data from our api.
+Instead of fetching from an API, we read the payment data directly from the blockchain using `useReadContract`. The `intentId` comes from the URL path, and the optional description is decoded from the `?m=` query parameter. This approach eliminates the need for any backend storage.
 
 #### **2.5 Putting it all together.**
 
