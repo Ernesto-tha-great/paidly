@@ -5,7 +5,7 @@ export async function GET(
   { params }: { params: Promise<{ intentId: string }> }
 ) {
   const { intentId } = await params;
-  const intent = getIntent(intentId);
+  const intent = await getIntent(intentId);
 
   if (!intent) {
     return Response.json(null, { status: 404 });
@@ -19,6 +19,6 @@ export async function POST(
   { params }: { params: Promise<{ intentId: string }> }
 ) {
   const { intentId } = await params;
-  markClaimed(intentId);
+  await markClaimed(intentId);
   return Response.json({ ok: true });
 }

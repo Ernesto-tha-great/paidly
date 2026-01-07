@@ -1,5 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
+import { kv } from "@vercel/kv";
 
 type Intent = {
   intentId: string;
@@ -9,47 +8,20 @@ type Intent = {
   status: "pending" | "claimed";
 };
 
-const STORE_PATH = join(process.cwd(), ".intents.json");
+const PREFIX = "intent:";
 
-function loadStore(): Map<string, Intent> {
-  try {
-    if (existsSync(STORE_PATH)) {
-      const data = readFileSync(STORE_PATH, "utf-8");
-      const entries = JSON.parse(data);
-      return new Map(entries);
-    }
-  } catch (e) {
-    console.error("Failed to load store:", e);
-  }
-  return new Map();
+export async function saveIntent(intent: Intent) {
+  await kv.set(`${PREFIX}${intent.intentId}`, intent);
 }
 
-function persistStore(intents: Map<string, Intent>) {
-  try {
-    const entries = Array.from(intents.entries());
-    writeFileSync(STORE_PATH, JSON.stringify(entries, null, 2));
-  } catch (e) {
-    console.error("Failed to persist store:", e);
-  }
+export async function getIntent(intentId: string): Promise<Intent | null> {
+  return await kv.get<Intent>(`${PREFIX}${intentId}`);
 }
 
-export function saveIntent(intent: Intent) {
-  const intents = loadStore();
-  intents.set(intent.intentId, intent);
-  persistStore(intents);
-}
-
-export function getIntent(intentId: string): Intent | undefined {
-  const intents = loadStore();
-  return intents.get(intentId);
-}
-
-export function markClaimed(intentId: string) {
-  const intents = loadStore();
-  const intent = intents.get(intentId);
+export async function markClaimed(intentId: string) {
+  const intent = await getIntent(intentId);
   if (intent) {
     intent.status = "claimed";
-    intents.set(intentId, intent);
-    persistStore(intents);
+    await kv.set(`${PREFIX}${intentId}`, intent);
   }
 }
